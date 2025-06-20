@@ -6,7 +6,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Search, Plus, Minus } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Search, Plus, Minus, X } from 'lucide-react';
 import { mqttService } from '@/services/mqttService';
 import { toast } from 'react-hot-toast';
 
@@ -29,6 +36,8 @@ interface BuyResponse {
 export default function ShopPage() {
     const [products, setProducts] = useState<Product[]>([]);
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isLoadingDetail, setIsLoadingDetail] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -92,10 +101,12 @@ export default function ShopPage() {
                     setIsLoading(false);
                 } else if (topic === detailResponseTopic) {
                     console.log('🔍 Processing product detail response...');
+                    setIsLoadingDetail(false);
                     
                     if (message.status === 'success' || message.status === true || message.code === 200 || message.status_code === 200) {
                         console.log('✅ Product detail:', message.data);
                         setSelectedProduct(message.data);
+                        setIsModalOpen(true); // Open modal when product detail received
                     } else {
                         console.error('❌ Detail response error:', message);
                         toast.error(message.message || "Gagal mengambil detail produk.");
@@ -113,6 +124,7 @@ export default function ShopPage() {
                             mqttService.publish(catalogRequestTopic, JSON.stringify({}));
                         }, 1000);
                         setSelectedProduct(null); // Tutup detail view
+                        setIsModalOpen(false); // Close modal
                     } else {
                         console.error('❌ Purchase failed:', response);
                         const errorMsg = response.message || 'Pembelian gagal.';
@@ -233,8 +245,18 @@ export default function ShopPage() {
     const handleProductClick = (product: Product) => {
         console.log('🔍 Requesting product detail for:', product.id);
         setPurchaseQuantity(1); // Reset quantity when selecting new product
+        setIsLoadingDetail(true);
+        setSelectedProduct(product); // Set basic product info first
+        setIsModalOpen(true); // Open modal immediately with loading state
+        
         const detailRequestTopic = 'B/D/shopit/product-detail/request';
         mqttService.publish(detailRequestTopic, JSON.stringify({ product_id: product.id }));
+        
+        // Add shimmer toast
+        toast('Memuat detail produk...', { 
+            icon: '🔍',
+            duration: 2000 
+        });
     };
 
     const handleBuy = (product: Product, quantity: number = 1) => {
@@ -259,6 +281,13 @@ export default function ShopPage() {
     const handleImageError = (productId: string) => {
         console.log('Image load error for product:', productId);
         setImageErrors(prev => new Set([...prev, productId]));
+    };
+
+    const closeModal = () => {
+        setIsModalOpen(false);
+        setSelectedProduct(null);
+        setPurchaseQuantity(1);
+        setIsLoadingDetail(false);
     };
 
     return (
@@ -304,13 +333,17 @@ export default function ShopPage() {
                 <>
                     <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
                         {filteredProducts.map((product) => (
-                            <Card key={product.id} className="overflow-hidden cursor-pointer hover:shadow-lg transition-shadow" onClick={() => handleProductClick(product)}>
+                            <Card 
+                                key={product.id} 
+                                className="group overflow-hidden cursor-pointer hover:shadow-2xl hover:shadow-blue-500/20 transition-all duration-300 hover:-translate-y-2 hover:scale-105 border-2 hover:border-blue-200" 
+                                onClick={() => handleProductClick(product)}
+                            >
                                 <CardContent className="p-0">
-                                    <div className="aspect-square relative bg-gray-100">
+                                    <div className="aspect-square relative bg-gray-100 overflow-hidden">
                                         {imageErrors.has(product.id) ? (
-                                            <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                                                <div className="text-center text-gray-500">
-                                                    <div className="text-4xl mb-2">📦</div>
+                                            <div className="w-full h-full flex items-center justify-center bg-gray-200 group-hover:bg-gray-300 transition-colors duration-300">
+                                                <div className="text-center text-gray-500 group-hover:text-gray-600 transition-colors duration-300">
+                                                    <div className="text-4xl mb-2 group-hover:scale-110 transition-transform duration-300">📦</div>
                                                     <p className="text-xs">No Image</p>
                                                 </div>
                                             </div>
@@ -319,17 +352,23 @@ export default function ShopPage() {
                                                 src={product.image_url || '/placeholder.svg'} 
                                                 alt={product.name} 
                                                 fill
-                                                className="object-cover"
+                                                className="object-cover group-hover:scale-110 transition-transform duration-300"
                                                 onError={() => handleImageError(product.id)}
                                             />
                                         )}
+                                        {/* Overlay gradient on hover */}
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                                        {/* Click indicator */}
+                                        <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 transform group-hover:scale-110">
+                                            <Search className="w-3 h-3 text-blue-600" />
+                                        </div>
                                     </div>
-                                    <div className="p-3 sm:p-4">
-                                        <h3 className="font-semibold line-clamp-2 mb-2 text-sm sm:text-base">{product.name}</h3>
-                                        <p className={`text-xs sm:text-sm mb-2 ${product.quantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    <div className="p-3 sm:p-4 group-hover:bg-gray-50 transition-colors duration-300">
+                                        <h3 className="font-semibold line-clamp-2 mb-2 text-sm sm:text-base group-hover:text-blue-900 transition-colors duration-300">{product.name}</h3>
+                                        <p className={`text-xs sm:text-sm mb-2 transition-colors duration-300 ${product.quantity > 0 ? 'text-green-600 group-hover:text-green-700' : 'text-red-600 group-hover:text-red-700'}`}>
                                             Stok: {product.quantity}
                                         </p>
-                                        <p className="font-bold text-blue-600 text-sm sm:text-base">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(product.price)}</p>
+                                        <p className="font-bold text-blue-600 text-sm sm:text-base group-hover:text-blue-700 transition-colors duration-300">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(product.price)}</p>
                                     </div>
                                 </CardContent>
                             </Card>
@@ -344,14 +383,35 @@ export default function ShopPage() {
                 </>
             )}
             
-            {/* Detail Product Section */}
-            {selectedProduct && (
-                <section className="mt-8 sm:mt-12">
-                    <h2 className="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">Detail Produk</h2>
-                    <Card>
-                        <CardContent className="p-4 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 items-center">
+            {/* Product Detail Modal */}
+            <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto animate-bounce-in">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold">
+                            {isLoadingDetail ? (
+                                <div className="flex items-center gap-2">
+                                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                                    Memuat detail produk...
+                                </div>
+                            ) : (
+                                selectedProduct?.name || 'Detail Produk'
+                            )}
+                        </DialogTitle>
+                    </DialogHeader>
+                    
+                    {selectedProduct && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-4">
+                            {/* Product Image */}
                             <div className="aspect-square relative rounded-lg overflow-hidden bg-gray-100">
-                                {selectedProduct && imageErrors.has(selectedProduct.id) ? (
+                                {isLoadingDetail ? (
+                                    // Loading skeleton for image
+                                    <div className="w-full h-full bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 animate-pulse relative">
+                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/60 to-transparent animate-shimmer"></div>
+                                        <div className="absolute inset-0 flex items-center justify-center">
+                                            <div className="text-4xl animate-pulse">📦</div>
+                                        </div>
+                                    </div>
+                                ) : imageErrors.has(selectedProduct.id) ? (
                                     <div className="w-full h-full flex items-center justify-center bg-gray-200">
                                         <div className="text-center text-gray-500">
                                             <div className="text-6xl mb-4">📦</div>
@@ -368,61 +428,129 @@ export default function ShopPage() {
                                     />
                                 )}
                             </div>
-                            <div className="space-y-3 sm:space-y-4">
-                                <h3 className="text-xl sm:text-2xl font-bold">{selectedProduct.name}</h3>
-                                <p className="text-gray-600 text-sm sm:text-base">Produk IT berkualitas tinggi dengan spesifikasi terbaik. Cocok untuk kebutuhan profesional maupun personal.</p>
-                                <p className="text-base sm:text-lg">Stok: <span className={`font-medium ${selectedProduct.quantity > 0 ? 'text-green-600' : 'text-red-600'}`}>{selectedProduct.quantity}</span></p>
-                                <p className="text-2xl sm:text-3xl font-bold text-blue-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(selectedProduct.price)}</p>
-                                
-                                {/* Quantity Selector */}
-                                {selectedProduct.quantity > 0 && (
-                                    <div className="space-y-2">
-                                        <Label>Jumlah:</Label>
-                                        <div className="flex items-center gap-3">
-                                            <Button 
-                                                variant="outline" 
-                                                size="sm" 
-                                                onClick={() => setPurchaseQuantity(prev => Math.max(1, prev - 1))}
-                                                disabled={purchaseQuantity <= 1}
-                                                className="h-8 w-8 p-0"
-                                            >
-                                                <Minus className="w-4 h-4" />
-                                            </Button>
-                                            <span className="w-12 text-center font-medium">{purchaseQuantity}</span>
-                                            <Button 
-                                                variant="outline" 
-                                                size="sm" 
-                                                onClick={() => setPurchaseQuantity(prev => Math.min(selectedProduct.quantity, prev + 1))}
-                                                disabled={purchaseQuantity >= selectedProduct.quantity}
-                                                className="h-8 w-8 p-0"
-                                            >
-                                                <Plus className="w-4 h-4" />
-                                            </Button>
+                            
+                            {/* Product Info */}
+                            <div className="space-y-4">
+                                {isLoadingDetail ? (
+                                    // Loading skeleton for product info
+                                    <div className="space-y-4">
+                                        {/* Title skeleton */}
+                                        <div className="space-y-2">
+                                            <div className="h-8 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded-lg animate-pulse"></div>
+                                            <div className="h-6 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded-lg animate-pulse w-3/4"></div>
                                         </div>
-                                        <div className="text-sm text-gray-600">
-                                            Total: <span className="font-bold text-blue-600">
-                                                {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(selectedProduct.price * purchaseQuantity)}
-                                            </span>
+                                        
+                                        {/* Description skeleton */}
+                                        <div className="space-y-2">
+                                            <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded animate-pulse"></div>
+                                            <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded animate-pulse w-5/6"></div>
+                                            <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded animate-pulse w-4/6"></div>
+                                        </div>
+                                        
+                                        {/* Stock and price skeleton */}
+                                        <div className="space-y-3">
+                                            <div className="h-6 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded animate-pulse w-24"></div>
+                                            <div className="h-10 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded-lg animate-pulse w-40"></div>
+                                        </div>
+                                        
+                                        {/* Quantity skeleton */}
+                                        <div className="space-y-3">
+                                            <div className="h-6 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded animate-pulse w-16"></div>
+                                            <div className="flex items-center gap-3">
+                                                <div className="h-10 w-10 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded animate-pulse"></div>
+                                                <div className="h-6 w-16 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded animate-pulse"></div>
+                                                <div className="h-10 w-10 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded animate-pulse"></div>
+                                            </div>
                                         </div>
                                     </div>
+                                ) : (
+                                    <>
+                                        <div>
+                                            <h3 className="text-2xl font-bold mb-2">{selectedProduct.name}</h3>
+                                            <p className="text-gray-600">
+                                                Produk IT berkualitas tinggi dengan spesifikasi terbaik. 
+                                                Cocok untuk kebutuhan profesional maupun personal.
+                                            </p>
+                                        </div>
+                                        
+                                        <div className="space-y-2">
+                                            <p className="text-lg">
+                                                Stok: <span className={`font-medium ${selectedProduct.quantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                    {selectedProduct.quantity}
+                                                </span>
+                                            </p>
+                                            <p className="text-3xl font-bold text-blue-600">
+                                                {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(selectedProduct.price)}
+                                            </p>
+                                        </div>
+                                        
+                                        {/* Quantity Selector */}
+                                        {selectedProduct.quantity > 0 && (
+                                            <div className="space-y-3">
+                                                <Label className="text-base">Jumlah:</Label>
+                                                <div className="flex items-center gap-3">
+                                                    <Button 
+                                                        variant="outline" 
+                                                        size="sm" 
+                                                        onClick={() => setPurchaseQuantity(prev => Math.max(1, prev - 1))}
+                                                        disabled={purchaseQuantity <= 1}
+                                                        className="h-10 w-10 p-0"
+                                                    >
+                                                        <Minus className="w-4 h-4" />
+                                                    </Button>
+                                                    <span className="w-16 text-center font-medium text-lg">{purchaseQuantity}</span>
+                                                    <Button 
+                                                        variant="outline" 
+                                                        size="sm" 
+                                                        onClick={() => setPurchaseQuantity(prev => Math.min(selectedProduct.quantity, prev + 1))}
+                                                        disabled={purchaseQuantity >= selectedProduct.quantity}
+                                                        className="h-10 w-10 p-0"
+                                                    >
+                                                        <Plus className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
+                                                <div className="text-base text-gray-700">
+                                                    Total: <span className="font-bold text-blue-600 text-lg">
+                                                        {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(selectedProduct.price * purchaseQuantity)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
                                 )}
-                                
-                                <div className="flex flex-col sm:flex-row gap-2 pt-4">
-                                    <Button 
-                                        size="lg" 
-                                        className="flex-1 h-12 text-base" 
-                                        onClick={() => handleBuy(selectedProduct, purchaseQuantity)} 
-                                        disabled={selectedProduct.quantity === 0}
-                                    >
-                                        {selectedProduct.quantity === 0 ? 'Stok Habis' : `Beli ${purchaseQuantity} Item`}
-                                    </Button>
-                                    <Button size="lg" variant="outline" className="h-12 text-base" onClick={() => setSelectedProduct(null)}>Tutup</Button>
-                                </div>
                             </div>
-                        </CardContent>
-                    </Card>
-                </section>
-            )}
+                        </div>
+                    )}
+                    
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={closeModal}>
+                            Tutup
+                        </Button>
+                        {isLoadingDetail ? (
+                            <Button disabled className="bg-gray-300">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                Memuat...
+                            </Button>
+                        ) : (
+                            <>
+                                {selectedProduct && selectedProduct.quantity > 0 && (
+                                    <Button 
+                                        onClick={() => handleBuy(selectedProduct, purchaseQuantity)}
+                                        className="bg-blue-600 hover:bg-blue-700 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/25"
+                                    >
+                                        Beli {purchaseQuantity} Item
+                                    </Button>
+                                )}
+                                {selectedProduct && selectedProduct.quantity === 0 && (
+                                    <Button disabled>
+                                        Stok Habis
+                                    </Button>
+                                )}
+                            </>
+                        )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 } 

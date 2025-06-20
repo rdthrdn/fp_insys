@@ -4,9 +4,17 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { 
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { ArrowUpRight, Wallet, TrendingUp, CreditCard, Plus } from 'lucide-react';
 import { mqttService } from '@/services/mqttService';
 import Link from 'next/link';
+import { toast } from 'react-hot-toast';
 
 // Definisikan tipe data untuk state agar lebih aman
 interface AccountIdentity {
@@ -27,6 +35,7 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRequestingBalance, setIsRequestingBalance] = useState(false);
+  const [isBalanceModalOpen, setIsBalanceModalOpen] = useState(false);
 
   useEffect(() => {
     // Topik MQTT
@@ -94,9 +103,9 @@ export default function HomePage() {
             if (message.data && message.data.current_balance !== undefined) {
               setWallet(prev => prev ? { ...prev, balance: message.data.current_balance } : null);
             }
-            alert(`✅ ${message.message}`);
+            toast.success(`✅ ${message.message}`);
           } else {
-            alert(`❌ ${message.message}`);
+            toast.error(`❌ ${message.message}`);
           }
         }
         
@@ -149,20 +158,38 @@ export default function HomePage() {
     };
   }, []);
 
-  // Function to request balance from server
-  const requestBalance = () => {
+  // Function to request balance from server with amount
+  const requestBalance = (amount?: number) => {
     const email = process.env.NEXT_PUBLIC_EMAIL || '';
     const paymentMethod = process.env.NEXT_PUBLIC_PAYMENT_METHOD || 'dopay';
     const giveBalanceRequestTopic = `B/D/bankit/${paymentMethod}/give-balance/request`;
     
     setIsRequestingBalance(true);
-    mqttService.publish(giveBalanceRequestTopic, JSON.stringify({ email }));
+    setIsBalanceModalOpen(false);
+    
+    const payload = amount ? { email, amount } : { email };
+    mqttService.publish(giveBalanceRequestTopic, JSON.stringify(payload));
+    
+    toast(`Meminta saldo ${amount ? 'Rp ' + amount.toLocaleString('id-ID') : ''}...`, { 
+      icon: '💰',
+      duration: 3000 
+    });
     
     // Set timeout untuk handling jika tidak ada response
     setTimeout(() => {
       setIsRequestingBalance(false);
     }, 10000);
   };
+
+  // Predefined balance amounts
+  const balanceOptions = [
+    { amount: 10000, label: 'Rp 10.000' },
+    { amount: 25000, label: 'Rp 25.000' },
+    { amount: 50000, label: 'Rp 50.000' },
+    { amount: 100000, label: 'Rp 100.000' },
+    { amount: 250000, label: 'Rp 250.000' },
+    { amount: 500000, label: 'Rp 500.000' },
+  ];
 
   if (isLoading && !error) {
     return (
@@ -223,7 +250,7 @@ export default function HomePage() {
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <Button 
-              onClick={requestBalance} 
+              onClick={() => setIsBalanceModalOpen(true)} 
               disabled={isRequestingBalance}
               variant="outline" 
               className="gap-2 w-full sm:w-auto"
@@ -285,6 +312,52 @@ export default function HomePage() {
           </Card>
         </Link>
       </div>
+
+      {/* Balance Request Modal */}
+      <Dialog open={isBalanceModalOpen} onOpenChange={setIsBalanceModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-center">
+              💰 Pilih Nominal Saldo
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="grid grid-cols-2 gap-3 py-4">
+            {balanceOptions.map((option) => (
+              <Button
+                key={option.amount}
+                variant="outline"
+                className="h-16 text-base font-medium hover:bg-blue-50 hover:border-blue-300"
+                onClick={() => requestBalance(option.amount)}
+                disabled={isRequestingBalance}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+          
+          <div className="border-t pt-3">
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => requestBalance()}
+              disabled={isRequestingBalance}
+            >
+              Request Default Amount
+            </Button>
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsBalanceModalOpen(false)}
+              disabled={isRequestingBalance}
+            >
+              Batal
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
